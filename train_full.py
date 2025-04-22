@@ -1,5 +1,5 @@
 print('first round imports')
-# conditional_train_single_gpu.py
+# train.py
 import argparse
 import json
 import os
@@ -128,6 +128,8 @@ def main():
     parser.add_argument('--r', type=int, default=4, help='Dilation factor r')
     parser.add_argument('--class_dropout_prob', type=float, default=0.1, help='Dropout probability for class embedding (for CFG)')
     parser.add_argument('--embedding_scale', type=float, default=1.0, help='Scale factor for adding class embedding')
+    parser.add_argument('--slim', type=bool, default=False, help='Large or small model.')
+    parser.add_argument('--activation', type=str, default='relu', help='Activation function like relu or gelu')
 
     # --- Diffusion Hyperparameters ---
     parser.add_argument('--diffusion_timesteps', type=int, default=50, help='Number of diffusion timesteps')
@@ -151,7 +153,7 @@ def main():
 
     # --- Other ---
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
-    parser.add_argument('--num_workers', type=int, default=4, help='Number of dataloader workers')
+    parser.add_argument('--num_workers', type=int, default=0, help='Number of dataloader workers')
     parser.add_argument('--device', type=str, default=None, help='Device to use (e.g., "cuda:0", "cpu"). Auto-detects if None.')
 
 
@@ -163,6 +165,8 @@ def main():
     print(f"Starting single-GPU/CPU training with configuration:")
     for k, v in vars(args).items():
         print(f"  {k}: {v}")
+
+    print(f'it is actually: {args.slim}')
 
     # --- Call the main training function ---
     train(args)
@@ -230,6 +234,8 @@ def train(args):
         )
     print("DataLoaders initialized.")
 
+    print(f'it is actually: {args.slim}')
+
     # --- Model ---
     model = ConditionalByteNetLMTime(
         n_tokens=n_tokens,
@@ -238,6 +244,8 @@ def train(args):
         n_layers=args.n_layers,
         kernel_size=args.kernel_size,
         r=args.r,
+        slim=args.slim,
+        activation=args.activation,
         n_classes=n_classes,
         class_dropout_prob=args.class_dropout_prob,
         embedding_scale=args.embedding_scale,
@@ -255,7 +263,7 @@ def train(args):
     loss_func_lvb = D3PMLVBLoss(tmax=args.diffusion_timesteps, tokenizer=tokenizer).to(device)
     loss_func_ce = D3PMCELoss(tokenizer=tokenizer).to(device)
     _lambda = args.reweighting_term
-    scaler = GradScaler(enabled=(device.type == 'cuda')) # Enable only for CUDA
+    scaler = torch.amp.GradScaler('cuda', enabled=(device.type == 'cuda')) # Enable only for CUDA
 
     print("Optimizer, Scheduler, Loss Functions, Scaler initialized.")
 
@@ -317,7 +325,7 @@ def train(args):
             input_mask = (src != tokenizer.pad_id) # Shape: [B, L]
 
             # Use autocast for mixed precision if on GPU
-            with autocast(enabled=(device.type == 'cuda')):
+            with torch.amp.autocast('cuda', enabled=(device.type == 'cuda')):
                 outputs = model(src, timestep, class_labels=class_labels, input_mask=input_mask.unsqueeze(-1))
 
                 # --- Loss Calculation ---

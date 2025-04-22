@@ -1,42 +1,8 @@
 import torch
 import numpy as np
 
-class ConditionalD3PMCollator(D3PMCollater):
-    """
-    extension of D3PMCollator that includes class labels for conditional generation.
-    they made a spelling mistake in 'collater' which is fixed here.
-    """
-    def __init__(self, tokenizer, num_timesteps=100, Q=None, Q_bar=None):
-        """
-        args:
-            tokenzier: instance of evodiff.utils.Tokenizer
-            num_timesteps: divison of steps in forward process
-            Q: pre-defined transition probability matrix
-            Q_bar: cumulative product of Q at t
-        """
-        super().__init__(tokenizer=tokenizer, num_timesteps=num_timesteps, Q=Q, Q_bar=Q_bar)
-
-    def __call__(self, batch_data):
-        """
-        processes batch of data.
-        args:
-            batch_data: list of tuples (e.g. [(sequence1, label1), (sequence2, label2), ...])
-                        labels have to be >= 1 since 0 is reserved for null class
-
-        returns:
-            same as Tokenizer, except with class_labels at the end
-        """
-        # split sequence and their labels
-        sequences, class_labels = zip(*batch_data)
-
-        # process sequences through parent collator
-        batch_output = super().__call__(sequences)
-
-        # convert class labels to tensor and add batch output
-        class_labels_tensor = torch.tensor(class_labels, dtype=torch.long)
-
-        # return the combined batch data
-        return batch_output + (class_labels_tensor,)
+from evodiff.collaters import sample_transition_matrix, _pad
+from evodiff.utils import Tokenizer
 
 # this is sourced directly from evodiff. it is here because we need to make a small change and use
 # tokenizeMSA instead of tokenize to avoid headaches.
@@ -103,3 +69,42 @@ class D3PMCollater(object):
         tokenized = _pad(tokenized, self.tokenizer.pad_id)
         return (src.to(torch.long), src_one_hot.to(torch.double), torch.tensor(timesteps), tokenized.to(torch.long),
                 one_hot.to(torch.double), self.Q, self.Q_bar, q_x.to(torch.double)) #, q_x_minus1.to(torch.double))
+
+
+class ConditionalD3PMCollator(D3PMCollater):
+    """
+    extension of D3PMCollator that includes class labels for conditional generation.
+    they made a spelling mistake in 'collater' which is fixed here.
+    """
+    def __init__(self, tokenizer, num_timesteps=100, Q=None, Q_bar=None):
+        """
+        args:
+            tokenzier: instance of evodiff.utils.Tokenizer
+            num_timesteps: divison of steps in forward process
+            Q: pre-defined transition probability matrix
+            Q_bar: cumulative product of Q at t
+        """
+        super().__init__(tokenizer=tokenizer, num_timesteps=num_timesteps, Q=Q, Q_bar=Q_bar)
+
+    def __call__(self, batch_data):
+        """
+        processes batch of data.
+        args:
+            batch_data: list of tuples (e.g. [(sequence1, label1), (sequence2, label2), ...])
+                        labels have to be >= 1 since 0 is reserved for null class
+
+        returns:
+            same as Tokenizer, except with class_labels at the end
+        """
+        # split sequence and their labels
+        sequences, class_labels = zip(*batch_data)
+
+        # process sequences through parent collator
+        batch_output = super().__call__(sequences)
+
+        # convert class labels to tensor and add batch output
+        class_labels_tensor = torch.tensor(class_labels, dtype=torch.long)
+
+        # return the combined batch data
+        return batch_output + (class_labels_tensor,)
+
